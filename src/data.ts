@@ -183,11 +183,57 @@ export const gsWatchlist: WatchlistResource[] = [
   ] },
 ]
 
-export type Article = { title: string; excerpt: string; category: string; date: string; readTime: string; slug: string }
+export type Article = { title: string; excerpt: string; category: string; date: string; readTime: string; slug: string; content?: string[] }
 
 export const articles: Article[] = [
-  { title: 'The calm way to begin your UPSC preparation', excerpt: 'A practical framework for turning a large syllabus into small, repeatable study days.', category: 'Strategy', date: 'Coming soon', readTime: '6 min read', slug: 'calm-way-to-begin' },
-  { title: 'How to read the newspaper for UPSC', excerpt: 'Move beyond highlighting. Learn how to extract issues, arguments and useful examples.', category: 'Current Affairs', date: 'Coming soon', readTime: '8 min read', slug: 'read-newspaper-for-upsc' },
+  {
+    title: 'The calm way to begin your UPSC preparation',
+    excerpt: 'A practical framework for turning a large syllabus into small, repeatable study days.',
+    category: 'Strategy', date: '27 Sep 2026', readTime: '6 min read', slug: 'calm-way-to-begin',
+    content: [
+      "Every UPSC aspirant meets the same wall in the first week: a syllabus that reads less like a list and more like a small library. GS Papers I to IV, an optional subject, essay, two language papers, current affairs that refuses to sit still — and an interview waiting at the very end. It is tempting to treat the size of this list as the actual difficulty of the exam. In practice, it rarely is. What breaks most aspirants is not the syllabus. It is starting without a plan for the ordinary, unglamorous days that make up most of a preparation year.",
+      "### Size is not the problem — direction is",
+      "A four-hundred-page textbook is not intimidating because it is long. It is intimidating because you don't yet know which forty pages of it actually matter for an exam question. The first real task of preparation, before any hour of reading, is building a rough map of what the syllabus is actually asking for — not memorising it, understanding its shape. Ten minutes spent circling the topics that repeat across previous papers will save you more time than a week of unfocused reading.",
+      "### Choose one source before you choose ten",
+      "New aspirants tend to collect resources — three channels for Polity, two books for History, a dozen bookmarked sites for current affairs — before they have finished a single topic properly. Comparing sources feels productive, but it usually delays the harder work of actually learning something well enough to write about it. Pick one reliable source per subject. Finish it. Only look for a second source to fill a specific gap, not because the first one felt incomplete.",
+      "### Design a routine you can survive on a bad day",
+      "Most study plans are written on a good day — well-rested, motivated, three clear hours ahead. They collapse the first time a bad day arrives, because a bad-day version was never designed. Build two versions of your daily routine: the full one for a normal day, and a fifteen-minute minimum version for a day when nothing is going right. The second version matters more. It keeps the chain of days unbroken, and an unbroken chain is worth more than any single brilliant day of studying.",
+      "### Build revision into the plan, not after it",
+      "Most aspirants treat revision as something to schedule once the syllabus is finished, quietly assuming there will be free time later for going back over everything. There won't be. Revision has to be built in from day one: a short return to last week's topics every Sunday, and a return to last month's topics once a month. A subject revisited four or five times in small doses is remembered far better than one read once in great detail and never touched again.",
+      "### Treat current affairs as a habit, not a subject",
+      "Current affairs feels endless because it is treated as a subject with a fixed syllabus, when it behaves more like a habit. Reading the newspaper for fifteen focused minutes every day builds a base that no amount of last-minute compilation reading can replace. Skip a week, and it doesn't just create a gap — it creates the sense that you are permanently behind, which is usually what causes people to give up on it altogether.",
+      "### Track effort, not just topics",
+      "A checklist of 'topics completed' can quietly lie to you. You can tick off a chapter after one distracted read-through and feel like you have made progress, when you would struggle to answer a single question from it a week later. Alongside your topic list, keep a short weekly note of what you can actually recall without looking — a one-line self-test, nothing formal. It is a more honest measure of where you stand than any completed checklist.",
+      "### The first month sets the pattern for the rest of the year",
+      "The first thirty days of preparation rarely decide how much you know. They decide something more important: whether studying becomes a normal part of your day or a battle you have to win every morning. Aim for consistency over intensity in this period. A steady two hours a day for a month builds a habit that a single sixteen-hour day cannot, and that habit is what carries you through the months when motivation predictably runs low.",
+      "There is no version of this preparation that skips the difficulty of a long syllabus. But a calm start — one source at a time, a routine built for bad days, honest tracking of what you actually remember — turns an overwhelming list into a series of ordinary days you can keep showing up for. That, more than any single strategy, is what carries most successful aspirants through.",
+    ],
+  },
+  {
+    title: 'How to read the newspaper for UPSC',
+    excerpt: 'Move beyond highlighting. Learn how to extract issues, arguments and useful examples.',
+    category: 'Current Affairs', date: '27 Sep 2026', readTime: '8 min read', slug: 'read-newspaper-for-upsc',
+    content: [
+      "Most aspirants start their newspaper habit the same way: pen in hand, highlighting entire paragraphs, convinced that colour means comprehension. A few weeks in, the newspaper is fully highlighted and almost nothing has actually been retained. Reading the newspaper for UPSC is not a reading exercise. It is an extraction exercise — pulling out the handful of things from each article that are actually useful for an answer, and leaving the rest behind without guilt.",
+      "### Highlighting is not the same as understanding",
+      "A highlighted sentence tells you that something felt important in the moment. It does not tell you why it matters, who it affects, or what side of an argument it belongs to. If you cannot explain a highlighted line in your own words a day later, the highlighting achieved nothing except the feeling of having worked. Read to extract, not to decorate the page.",
+      "### Ask four questions of every article that matters",
+      "Not every article deserves the same attention. For the ones that do — a policy, a scheme, a judgment, a report — run through four quick questions: What is the actual issue? Who are the stakeholders involved, and what does each one want? What is the strongest argument on each side? Is there one number, date or fact here worth remembering as an example in an answer? Four honest answers give you more usable material than an hour of undirected reading.",
+      "### Read editorials differently from news reports",
+      "A news report tells you what happened. An editorial tells you how to argue about what happened — which is exactly the skill mains answers are testing. When you read an editorial, don't just absorb the writer's conclusion. Note the structure: the claim being made, the evidence used to support it, and the counter-argument it is implicitly responding to. Borrowing that structure, not the writer's opinion, is what actually improves your own answer-writing.",
+      "### Prelims and mains ask different things from the same article",
+      "The same news item is useful for prelims and mains in different ways, and it helps to read with both in mind. For prelims, note the factual anchors — names, numbers, locations, the basic mechanics of a scheme or institution. For mains, note the issue and the argument around it. A single well-read article can serve both purposes if you are deliberately looking for both kinds of detail, rather than reading once for a vague sense of 'being updated.'",
+      "### Connect news to your static syllabus as you read",
+      "The most useful habit in newspaper reading is also the simplest: every time a news item touches a static topic, note the connection immediately. A judgment on free speech links straight to the Fundamental Rights chapter of Polity. A new fiscal policy links to the basics of monetary and fiscal tools in Economy. These are exactly the links that mains answers reward — an aspirant who can place a current event inside its constitutional or economic framework stands out from one who can only describe what happened.",
+      "### Keep notes that you can search, not notes that you archive",
+      "A notebook you never reopen is not a notes system, it is an archive. Organise notes by broad theme — polity, economy, environment, international relations, social issues — rather than by date, so that six months from now you can find everything you have on a topic in one place. A short, well-tagged note beats a long, chronological one every time revision comes around.",
+      "### One reliable source, read consistently, beats five read occasionally",
+      "It is common to follow multiple newspapers, several current-affairs channels and two or three monthly compilations at once, hoping that more sources mean fewer gaps. In practice, this usually produces repetition without depth. Choose one newspaper and one compilation source, and commit to them for the full year. Depth and consistency close far more gaps than breadth ever does.",
+      "### Build a weekly and monthly revision habit for current affairs specifically",
+      "Current affairs is forgotten faster than any static subject, simply because there is no textbook structure holding it together. Set aside twenty minutes every Sunday to skim the week's notes, and a longer session at the end of each month to consolidate. Without this habit, even carefully extracted notes from three months ago will feel unfamiliar by the time the exam approaches.",
+      "None of this requires reading more. It requires reading with a clearer purpose — pulling out the issue, the argument and the example, and letting the rest of the page go. Do this consistently for a year, and current affairs stops being the subject that never ends, and becomes one of the more manageable parts of your preparation.",
+    ],
+  },
   { title: 'NCERTs: what to read, and what to skip', excerpt: 'A clean first-pass reading list for building a strong foundation without losing momentum.', category: 'Foundation', date: 'Coming soon', readTime: '5 min read', slug: 'ncert-reading-list' },
 ]
 
