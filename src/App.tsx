@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route, useNavigate, useLocation, useParams } from 'react-router-dom'
+import { Link, Routes, Route, useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { articles, faqs, gsWatchlist, siteConfig, watchlistCategories, watchlistPlaylists } from './data'
+import seoPages from './seo-pages.json'
 import './App.css'
 
 const navItems = [
@@ -11,6 +12,55 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const routerNavigate = useNavigate()
   const location = useLocation()
+  useEffect(() => {
+    const pagePath = location.pathname === '/' ? '/' : `${location.pathname.replace(/\/+$/, '')}/`
+    const page = seoPages.find(item => item.path === pagePath) ?? seoPages[0]
+    const canonicalUrl = `https://freeupsc.online${page.path}`
+    const imageUrl = 'https://freeupsc.online/og-image.png'
+    const setMeta = (attribute: 'name' | 'property', key: string, value: string) => {
+      const selector = `meta[${attribute}="${key}"]`
+      const meta = document.querySelector<HTMLMetaElement>(selector) ?? document.createElement('meta')
+      meta.setAttribute(attribute, key)
+      meta.content = value
+      if (!meta.parentElement) document.head.append(meta)
+    }
+    document.title = page.title
+    setMeta('name', 'description', page.description)
+    setMeta('property', 'og:type', page.kind === 'blogPosting' ? 'article' : 'website')
+    setMeta('property', 'og:url', canonicalUrl)
+    setMeta('property', 'og:title', page.title)
+    setMeta('property', 'og:description', page.description)
+    setMeta('property', 'og:image', imageUrl)
+    setMeta('property', 'og:site_name', 'FUP | Free UPSC Preparation')
+    setMeta('name', 'twitter:card', 'summary_large_image')
+    setMeta('name', 'twitter:title', page.title)
+    setMeta('name', 'twitter:description', page.description)
+    setMeta('name', 'twitter:image', imageUrl)
+    const canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]') ?? document.createElement('link')
+    canonical.rel = 'canonical'
+    canonical.href = canonicalUrl
+    if (!canonical.parentElement) document.head.append(canonical)
+    const structuredData = page.kind === 'website'
+      ? { '@context': 'https://schema.org', '@graph': [
+        { '@type': 'WebSite', name: 'FUP | Free UPSC Preparation', url: 'https://freeupsc.online/' },
+        { '@type': 'Organization', name: 'FUP - Free UPSC Preparation', url: 'https://freeupsc.online/', sameAs: [siteConfig.telegramUrl, siteConfig.discordUrl, siteConfig.redditUrl] },
+      ] }
+      : page.kind === 'blogPosting'
+        ? { '@context': 'https://schema.org', '@type': 'BlogPosting', headline: page.title, description: page.description, mainEntityOfPage: canonicalUrl, datePublished: page.datePublished, dateModified: page.datePublished, author: { '@type': 'Organization', name: 'FUP' }, publisher: { '@type': 'Organization', name: 'FUP', url: 'https://freeupsc.online/' }, image: imageUrl }
+        : null
+    let jsonLd = document.getElementById('seo-structured-data')
+    if (structuredData) {
+      if (!jsonLd) {
+        jsonLd = document.createElement('script')
+        jsonLd.id = 'seo-structured-data'
+        jsonLd.setAttribute('type', 'application/ld+json')
+        document.head.append(jsonLd)
+      }
+      jsonLd.textContent = JSON.stringify(structuredData)
+    } else {
+      jsonLd?.remove()
+    }
+  }, [location.pathname])
   useEffect(() => {
     const redirect = sessionStorage.redirect
     if (redirect) { delete sessionStorage.redirect; if (redirect !== location.pathname) routerNavigate(redirect, { replace: true }) }
@@ -41,7 +91,11 @@ function Home({ navigate }: { navigate: (path: string) => void }) { return <>
 function PageHero({ label, title, intro }: { label: string; title: React.ReactNode; intro: string }) { return <section className="page-hero"><p className="eyebrow">{label}</p><h1>{title}</h1><p className="page-intro">{intro}</p></section> }
 function About({ navigate }: { navigate: (path: string) => void }) { return <><PageHero label="About FUP" title={<>A little more<br /><em>intention.</em></>} intro="FUP is a free preparation companion for aspirants who want a calmer, more considered way to prepare for the civil services." /><section className="section about-body"><div className="section-label">Our reason for being</div><div><p className="large-copy">UPSC preparation can be lonely, expensive and unnecessarily confusing.</p><p>We believe the first step towards a better preparation ecosystem is simple: make the right information easier to find. FUP is our attempt to do that with care. No noise. No false promises. Just useful resources and a community that understands the long road.</p><Button onClick={() => navigate('/watchlist')}>Explore the watchlist</Button></div></section><section className="values"><div><span>01</span><h2>Useful over<br /><em>impressive.</em></h2></div><div><span>02</span><h2>Progress over<br /><em>perfection.</em></h2></div><div><span>03</span><h2>Community over<br /><em>competition.</em></h2></div></section></> }
 function Watchlist() {
-  const [active, setActive] = useState('gs')
+  const [searchParams] = useSearchParams()
+  const [active, setActive] = useState(() => {
+    const requestedStream = searchParams.get('stream')
+    return watchlistCategories.some(item => item.id === requestedStream) ? requestedStream as string : 'gs'
+  })
   const [activeSubject, setActiveSubject] = useState(gsWatchlist[0].subject)
   const [activeVideo, setActiveVideo] = useState(0)
   const category = watchlistCategories.find(item => item.id === active)!
@@ -89,6 +143,14 @@ function Watchlist() {
   </>
 }
 function Blog({ navigate }: { navigate: (path: string) => void }) { const [filter, setFilter] = useState('All'); const categories = ['All', ...new Set(articles.map(article => article.category))]; const filtered = filter === 'All' ? articles : articles.filter(article => article.category === filter); return <><PageHero label="The FUP journal" title={<>Notes for the<br /><em>long road.</em></>} intro="Thoughts, frameworks and useful explainers for making your preparation a little more deliberate." /><section className="section blog-body"><div className="filter-row">{categories.map(category => <button className={filter === category ? 'selected' : ''} onClick={() => setFilter(category)} key={category}>{category}</button>)}</div><div className="article-grid">{filtered.map((article, index) => <article className={index === 0 ? 'featured-article' : ''} key={article.slug}><div className="article-image"><span>{article.category}</span><b>{String(index + 1).padStart(2, '0')}</b></div><div className="article-meta">{article.date}<span>•</span>{article.readTime}</div><h2>{article.title}</h2><p>{article.excerpt}</p><button className="arrow-link" onClick={article.content ? () => navigate(`/blog/${article.slug}`) : undefined} disabled={!article.content}>{article.content ? 'Read note' : 'Coming soon'} <span>↗</span></button></article>)}</div></section></> }
-function BlogPost({ navigate }: { navigate: (path: string) => void }) { const { slug } = useParams(); const article = articles.find(a => a.slug === slug); if (!article || !article.content) return <Blog navigate={navigate} />; return <><PageHero label={article.category} title={article.title} intro={article.excerpt} /><section className="section legal-copy"><button className="arrow-link" onClick={() => navigate('/blog')}>← Back to the journal</button><p className="article-meta">{article.date}<span>•</span>{article.readTime}</p>{article.content.map((block, i) => block.startsWith('### ') ? <h3 key={i}>{block.slice(4)}</h3> : <p key={i}>{block}</p>)}</section></> }
+function renderBlogBlock(block: string, key: number) {
+  if (block.startsWith('### ')) return <h3 key={key}>{block.slice(4)}</h3>
+  const parts = block.split(/(\[[^\]]+\]\([^)]+\))/g)
+  return <p key={key}>{parts.map((part, index) => {
+    const match = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(part)
+    return match ? <Link key={index} to={match[2]}>{match[1]}</Link> : part
+  })}</p>
+}
+function BlogPost({ navigate }: { navigate: (path: string) => void }) { const { slug } = useParams(); const article = articles.find(a => a.slug === slug); if (!article || !article.content) return <Blog navigate={navigate} />; return <><PageHero label={article.category} title={article.title} intro={article.excerpt} /><section className="section legal-copy"><button className="arrow-link" onClick={() => navigate('/blog')}>← Back to the journal</button><p className="article-meta">{article.date}<span>•</span>{article.readTime}</p>{article.content.map((block, i) => renderBlogBlock(block, i))}</section></> }
 function Privacy() { return <><PageHero label="Privacy policy" title={<>Your trust is<br /><em>not data.</em></>} intro="A short, clear explanation of how FUP handles the little information you share with us." /><section className="section legal-copy"><p className="large-copy">We keep things simple.</p><h3>What we collect</h3><p>FUP does not require an account to browse the website. If you contact us by email, we only use your message to respond to you. Telegram is governed by Telegram's own privacy policy.</p><h3>Analytics and cookies</h3><p>We aim to keep this website lightweight. If analytics are added in the future, this policy will be updated before they are used.</p><h3>Contact</h3><p>Questions about privacy can be sent to <a href={`mailto:${siteConfig.email}`}>{siteConfig.email}</a>.</p></section></> }
 export default App

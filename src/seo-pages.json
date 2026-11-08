@@ -1,0 +1,67 @@
+[
+  {
+    "path": "/",
+    "title": "Free UPSC Preparation Resources | FUP",
+    "description": "Free UPSC preparation resources with curated video playlists, NCERT guidance, newspaper strategy and practical study notes to help aspirants build a routine.",
+    "kind": "website"
+  },
+  {
+    "path": "/about/",
+    "title": "About FUP | Free UPSC Preparation",
+    "description": "Meet FUP, a free UPSC preparation companion with curated study resources, practical guidance and a calmer way to build a consistent civil services routine.",
+    "kind": "page"
+  },
+  {
+    "path": "/watchlist/",
+    "title": "UPSC Video Playlists | FUP Watchlist",
+    "description": "Explore free UPSC video playlists for General Studies, current affairs, NCERT foundation and optional subjects, organized by topic for focused self-study.",
+    "kind": "page"
+  },
+  {
+    "path": "/blog/",
+    "title": "UPSC Preparation Journal | FUP",
+    "description": "Read practical UPSC preparation guides on study routines, NCERT books, newspaper reading and current affairs, with clear steps for steady self-study today.",
+    "kind": "page"
+  },
+  {
+    "path": "/privacy/",
+    "title": "Privacy Policy | FUP Free UPSC Preparation",
+    "description": "Learn what information FUP handles when you browse or contact us, how messages are used, what we do not collect, and how to ask questions about privacy.",
+    "kind": "page"
+  },
+  {
+    "path": "/blog/calm-way-to-begin/",
+    "title": "Start UPSC Preparation Calmly | FUP Journal",
+    "description": "Begin UPSC preparation with a manageable routine, one reliable source at a time, revision and progress checks that keep the long syllabus in perspective.",
+    "kind": "blogPosting",
+    "datePublished": "2026-09-27"
+  },
+  {
+    "path": "/blog/read-newspaper-for-upsc/",
+    "title": "How to Read a Newspaper for UPSC | FUP",
+    "description": "Read the newspaper for UPSC by extracting issues, arguments and examples, linking news to static topics, and revising concise notes each week for better recall.",
+    "kind": "blogPosting",
+    "datePublished": "2026-09-27"
+  },
+  {
+    "path": "/blog/upsc-2027-free-preparation/",
+    "title": "Free UPSC 2027 Preparation: Step-by-Step",
+    "description": "Start UPSC 2027 preparation with a clear syllabus check, free core resources, a weekly plan, regular revision and a routine you can sustain through busy days.",
+    "kind": "blogPosting",
+    "datePublished": "2026-11-08"
+  },
+  {
+    "path": "/blog/ncert-reading-list/",
+    "title": "NCERT for UPSC: Books and Reading Order",
+    "description": "Choose NCERT books for UPSC with a subject-wise reading order, practical first-pass goals, focused notes and revision without collecting too many resources.",
+    "kind": "blogPosting",
+    "datePublished": "2026-11-08"
+  },
+  {
+    "path": "/blog/upsc-current-affairs-system/",
+    "title": "UPSC Current Affairs: Daily, Weekly, Monthly",
+    "description": "Build a UPSC current-affairs routine with daily reading, weekly notes review, monthly consolidation and links to the static syllabus and answer practice.",
+    "kind": "blogPosting",
+    "datePublished": "2026-11-08"
+  }
+]
