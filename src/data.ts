@@ -2,7 +2,9 @@ export const siteConfig = {
   name: 'Free UPSC Preparation',
   shortName: 'FUP',
   domain: 'https://freeupsc.online',
-  telegramUrl: 'https://t.me/+VK2Zgo5UrrY0MDg1',
+  telegramUrl: 'https://t.me/upscfreecoursess',
+  discordUrl: 'https://discord.gg/qahMmrBuA',
+  redditUrl: 'https://www.reddit.com/r/upsciea/s/iknbD8nzMv',
   email: 'hello@freeupsc.online',
   description: 'A calm, structured and completely free study companion for serious UPSC aspirants.',
 }
