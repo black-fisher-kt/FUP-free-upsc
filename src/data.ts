@@ -33,6 +33,15 @@ export type PlaylistVideo = {
   index?: number
 }
 
+export type PlaylistCard = {
+  topic: string
+  title: string
+  author: string
+  description: string
+  playlistUrl: string
+  thumbnailUrl: string
+}
+
 export const gsWatchlist: WatchlistResource[] = [
   { subject: 'Polity', source: 'M. Laxmikanth, chapter-wise', playlistId: 'PLMjnMh7f2NYa9OS9MEGAaPfATt5oDXLtz', firstVideoId: 'OSc8pBacMwk', playlistUrl: 'https://youtube.com/playlist?list=PLMjnMh7f2NYa9OS9MEGAaPfATt5oDXLtz&si=3_oQj6ra3lZeJtef', firstVideoUrl: 'https://youtu.be/OSc8pBacMwk?si=A7nRbV0zO19nPFaZ', firstVideoTitle: 'Chapter-1 Historical Background | Indian Polity by M. Laxmikanth | UPSC 2026', videos: [
     { title: 'Chapter-1 Historical Background', videoId: 'OSc8pBacMwk' },
@@ -184,6 +193,87 @@ export const gsWatchlist: WatchlistResource[] = [
     { title: 'RBI Monetary Policy, Variable Repo, VRRR, CRR-ASISO, e-RUPI, TReDS-NACH', videoId: 'q-GNbExdTlA' },
   ] },
 ]
+
+export const watchlistPlaylists: Record<string, PlaylistCard[]> = {
+  'current-affairs': [
+    {
+      topic: 'Current Affairs',
+      title: 'The Hindu Analysis | Drishti IAS English',
+      author: 'Drishti IAS : English',
+      description: 'The Hindu analysis playlist from Drishti IAS English.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PLQpF--VlgguS65gE4Wg6xAcMvfGnWU0qi',
+      thumbnailUrl: 'https://i.ytimg.com/vi/aVaH9Y4mRg0/hqdefault.jpg',
+    },
+  ],
+  ncert: [
+    {
+      topic: 'History',
+      title: 'HISTORY Class 6 NCERT Chapter wise | UPSC Preparation for Beginners 🚀',
+      author: 'PW OnlyIAS Prarambh',
+      description: 'Chapter-wise Class 6 NCERT History for UPSC beginners.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PL0CDU9VfXs_z9ZC34UdILxsaptxXK0hpD',
+      thumbnailUrl: 'https://i.ytimg.com/vi/qdQkFDfFQWQ/hqdefault.jpg',
+    },
+    {
+      topic: 'Polity',
+      title: 'Complete Indian Polity Through NCERT 🎯',
+      author: 'PW OnlyIAS English',
+      description: 'A complete Indian Polity playlist taught through NCERT.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PLyyn8VQuwuVQRnLS3yf0SXF0rQr1yzPZg',
+      thumbnailUrl: 'https://i.ytimg.com/vi/0qfD4hT530M/hqdefault.jpg',
+    },
+    {
+      topic: 'Geography',
+      title: 'Physical Geography - Complete Class 6th to 12th NCERT for UPSC 🔥',
+      author: 'PW OnlyIAS Prarambh',
+      description: 'Physical Geography NCERT coverage from Class 6 to 12 for UPSC.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PL0CDU9VfXs_x34bEBbwVe--jEZGx12dFY',
+      thumbnailUrl: 'https://i.ytimg.com/vi/u4OTk3zGEis/hqdefault.jpg',
+    },
+    {
+      topic: 'Economy',
+      title: 'Indian Economy - Complete Class 6th to 12th NCERT for UPSC 🔥',
+      author: 'PW OnlyIAS Prarambh',
+      description: 'Indian Economy NCERT coverage from Class 6 to 12 for UPSC.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PL0CDU9VfXs_xJs7NDwkqn13Nz287Ihj2D',
+      thumbnailUrl: 'https://i.ytimg.com/vi/4IaBH6nRseg/hqdefault.jpg',
+    },
+  ],
+  optional: [
+    {
+      topic: 'Sociology',
+      title: 'Sociology Optional for UPSC || Complete Syllabus',
+      author: 'Sleepy Classes IAS',
+      description: 'A complete syllabus playlist for the UPSC Sociology optional.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PLYSuG-KZy7JDFWh1oAMvzNLbaLZGY5Ina',
+      thumbnailUrl: 'https://i.ytimg.com/vi/rIhqqQQilTA/hqdefault.jpg',
+    },
+    {
+      topic: 'PSIR',
+      title: 'IR and Polity videos By Shashank Tyagi | STUDYIQ IAS| PSIR| CIVIL SERVICES | UPSC PREPARATION',
+      author: 'StudyIQ IAS',
+      description: 'IR and Polity videos for the PSIR optional from StudyIQ IAS.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PLpuxPG4TUOR4SRMLJTC3ywPeBIQ0Wm3js',
+      thumbnailUrl: 'https://i.ytimg.com/vi/hCwOzx261Nw/hqdefault.jpg',
+    },
+    {
+      topic: 'Public Administration',
+      title: 'Mohit Bhattacharya | Public Administration Optional | UPSC CSE',
+      author: 'StudyIQ IAS',
+      description: 'A Public Administration optional playlist for UPSC CSE.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PLpuxPG4TUOR54P_WAfdDG02P_gT4a-Z_m',
+      thumbnailUrl: 'https://i.ytimg.com/vi/ViUOurEht9g/hqdefault.jpg',
+    },
+    {
+      topic: 'Geography',
+      title: 'Geography Concepts & Maps Series for UPSC CSE | By Pritesh Mathurkar | UPSC PREPARATION | UPSC PRELIMS | UPSC MAINS | CIVIL SERVICES EXAM',
+      author: 'StudyIQ IAS',
+      description: 'A Geography concepts and maps series for UPSC CSE from StudyIQ IAS.',
+      playlistUrl: 'https://www.youtube.com/playlist?list=PLpuxPG4TUOR5sXTzaNX1i5fsNgOyu1hZK',
+      thumbnailUrl: 'https://i.ytimg.com/vi/Y_rGpHpRhgc/hqdefault.jpg',
+    },
+  ],
+}
 
 export type Article = { title: string; excerpt: string; category: string; date: string; readTime: string; slug: string; content?: string[] }
 
