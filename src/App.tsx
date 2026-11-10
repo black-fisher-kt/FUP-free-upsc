@@ -1,12 +1,32 @@
 import { useState, useEffect } from 'react'
 import { Link, Routes, Route, useNavigate, useLocation, useParams, useSearchParams } from 'react-router-dom'
-import { articles, faqs, gsWatchlist, siteConfig, watchlistCategories, watchlistPlaylists } from './data'
+import { articles, faqs, gsWatchlist, siteConfig, watchlistCategories, watchlistPlaylists, type Article } from './data'
 import seoPages from './seo-pages.json'
 import './App.css'
 
 const navItems = [
   { path: '/', label: 'Home' }, { path: '/about', label: 'About FUP' }, { path: '/watchlist', label: 'Watchlist' }, { path: '/blog', label: 'Journal' },
 ]
+
+type DailyBlogPost = Pick<Article, 'title' | 'excerpt' | 'category' | 'date' | 'readTime' | 'slug'> & {
+  publishedAt: string
+  href: string
+}
+
+function isDailyBlogPost(value: unknown): value is DailyBlogPost {
+  if (!value || typeof value !== 'object') return false
+  const post = value as Record<string, unknown>
+  return typeof post.title === 'string'
+    && typeof post.excerpt === 'string'
+    && typeof post.category === 'string'
+    && typeof post.date === 'string'
+    && typeof post.readTime === 'string'
+    && typeof post.slug === 'string'
+    && typeof post.publishedAt === 'string'
+    && typeof post.href === 'string'
+    && post.href.startsWith('/blog/')
+    && !post.href.includes('..')
+}
 
 function App() {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -142,7 +162,41 @@ function Watchlist() {
     </section>
   </>
 }
-function Blog({ navigate }: { navigate: (path: string) => void }) { const [filter, setFilter] = useState('All'); const categories = ['All', ...new Set(articles.map(article => article.category))]; const filtered = filter === 'All' ? articles : articles.filter(article => article.category === filter); return <><PageHero label="The FUP journal" title={<>Notes for the<br /><em>long road.</em></>} intro="Thoughts, frameworks and useful explainers for making your preparation a little more deliberate." /><section className="section blog-body"><div className="filter-row">{categories.map(category => <button className={filter === category ? 'selected' : ''} onClick={() => setFilter(category)} key={category}>{category}</button>)}</div><div className="article-grid">{filtered.map((article, index) => <article className={index === 0 ? 'featured-article' : ''} key={article.slug}><div className="article-image"><span>{article.category}</span><b>{String(index + 1).padStart(2, '0')}</b></div><div className="article-meta">{article.date}<span>•</span>{article.readTime}</div><h2>{article.title}</h2><p>{article.excerpt}</p><button className="arrow-link" onClick={article.content ? () => navigate(`/blog/${article.slug}`) : undefined} disabled={!article.content}>{article.content ? 'Read note' : 'Coming soon'} <span>↗</span></button></article>)}</div></section></> }
+function Blog({ navigate }: { navigate: (path: string) => void }) {
+  const [filter, setFilter] = useState('All')
+  const [dailyPosts, setDailyPosts] = useState<DailyBlogPost[]>([])
+  useEffect(() => {
+    let active = true
+    fetch('/posts.json')
+      .then(response => {
+        if (!response.ok) throw new Error(`posts.json returned HTTP ${response.status}`)
+        return response.json() as Promise<unknown>
+      })
+      .then(value => {
+        if (!Array.isArray(value)) throw new Error('posts.json must contain an array')
+        if (active) setDailyPosts(value.filter(isDailyBlogPost).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt)))
+      })
+      .catch(error => console.error('Unable to load daily blog posts', error))
+    return () => { active = false }
+  }, [])
+  const entries: (Article | DailyBlogPost)[] = [...dailyPosts, ...articles]
+  const categories = ['All', ...new Set(entries.map(article => article.category))]
+  const filtered = filter === 'All' ? entries : entries.filter(article => article.category === filter)
+  return <>
+    <PageHero label="The FUP journal" title={<>Notes for the<br /><em>long road.</em></>} intro="Thoughts, frameworks and useful explainers for making your preparation a little more deliberate." />
+    <section className="section blog-body">
+      <div className="filter-row">{categories.map(category => <button className={filter === category ? 'selected' : ''} onClick={() => setFilter(category)} key={category}>{category}</button>)}</div>
+      <div className="article-grid">{filtered.map((article, index) => <article className={index === 0 ? 'featured-article' : ''} key={'href' in article ? article.href : article.slug}>
+        <div className="article-image"><span>{article.category}</span><b>{String(index + 1).padStart(2, '0')}</b></div>
+        <div className="article-meta">{article.date}<span>•</span>{article.readTime}</div>
+        <h2>{article.title}</h2><p>{article.excerpt}</p>
+        {'href' in article
+          ? <a className="arrow-link" href={article.href}>Read note <span>↗</span></a>
+          : <button className="arrow-link" onClick={article.content ? () => navigate(`/blog/${article.slug}`) : undefined} disabled={!article.content}>{article.content ? 'Read note' : 'Coming soon'} <span>↗</span></button>}
+      </article>)}</div>
+    </section>
+  </>
+}
 function renderBlogBlock(block: string, key: number) {
   if (block.startsWith('### ')) return <h3 key={key}>{block.slice(4)}</h3>
   const parts = block.split(/(\[[^\]]+\]\([^)]+\))/g)
