@@ -16,10 +16,10 @@ const minBodyLength = 700
 const minSourceLength = 800
 
 const feeds = [
-  { name: 'PIB Press Releases', url: 'https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3', official: true },
-  { name: 'PIB Features', url: 'https://pib.gov.in/RssMain.aspx?ModId=18&Lang=1&Regid=3', official: true },
-  { name: 'The Indian Express', url: 'https://indianexpress.com/section/india/feed/' },
-  { name: 'The Hindu', url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
+  { name: 'PIB Press Releases', type: 'press-release', url: 'https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3', official: true },
+  { name: 'PIB Features', type: 'feature', url: 'https://pib.gov.in/RssMain.aspx?ModId=18&Lang=1&Regid=3', official: true },
+  { name: 'The Indian Express', type: 'news', url: 'https://indianexpress.com/section/india/feed/' },
+  { name: 'The Hindu', type: 'news', url: 'https://www.thehindu.com/news/national/feeder/default.rss' },
 ]
 
 function log(message) {
@@ -114,6 +114,7 @@ function parseFeed(xml, feed) {
       summary: summary.slice(0, 1200),
       url,
       sourceName: feed.name,
+      sourceType: feed.type,
       publishedAt: publishedAt && !Number.isNaN(Date.parse(publishedAt)) ? publishedAt : '',
       official: Boolean(feed.official),
     }]
@@ -225,31 +226,49 @@ function pibArticleText(html) {
   return ''
 }
 
+function containsDevanagari(value) {
+  return /[\u0900-\u097f]/u.test(value)
+}
+
+function englishSourceText(pageText, translatedText = '') {
+  if (!containsDevanagari(pageText)) return pageText
+  return translatedText && !containsDevanagari(translatedText) ? translatedText : ''
+}
+
 async function fetchPibArticle(item) {
-  if (!item.official) return { text: item.summary, releaseDate: '' }
+  if (!item.official) return { text: '', releaseDate: '', sourceUrl: item.url, englishAvailable: false }
   try {
     const response = await fetchWithRetry(item.url, {
       headers: { accept: 'text/html,application/xhtml+xml' },
     }, `PIB article ${item.url}`)
     const html = await response.text()
-    let text = pibArticleText(html)
+    const pageText = pibArticleText(html)
+    let text = pageText
+    let sourceUrl = item.url
     const languageBlock = html.match(/<div\b[^>]*class=["'][^"']*\bReleaseLang\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i)?.[1] ?? ''
     const englishLink = languageBlock.match(/<a\b[^>]*href=["']([^"']+)["'][^>]*>\s*English\s*<\/a>/i)?.[1]
-    if (englishLink) {
+    if (containsDevanagari(text) && englishLink) {
       const englishUrl = canonicalUrl(new URL(decodeXml(englishLink), item.url).toString())
       if (englishUrl && englishUrl !== item.url) {
         const englishResponse = await fetchWithRetry(englishUrl, {
           headers: { accept: 'text/html,application/xhtml+xml' },
         }, `PIB English article ${englishUrl}`)
         const englishText = pibArticleText(await englishResponse.text())
-        if (englishText.length >= minSourceLength) text = englishText
+        text = englishSourceText(pageText, englishText)
+        if (text) {
+          sourceUrl = englishUrl
+        }
       }
     }
+    text = englishSourceText(text)
+    if (!text) {
+      return { text: '', releaseDate: '', sourceUrl, englishAvailable: false }
+    }
     const releaseDate = text.match(/\bPosted On:\s*(.+?)(?=\s+by PIB\b|$)/i)?.[1]?.trim() ?? ''
-    return { text, releaseDate }
+    return { text, releaseDate, sourceUrl, englishAvailable: true }
   } catch (error) {
     log(`PIB article text unavailable for "${item.title}": ${error.message}`)
-    return { text: item.summary, releaseDate: '' }
+    return { text: '', releaseDate: '', sourceUrl: item.url, englishAvailable: false }
   }
 }
 
@@ -257,32 +276,42 @@ function extractJson(content) {
   const trimmed = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
   try {
     return JSON.parse(trimmed)
-  } catch {
-    const start = trimmed.indexOf('{')
-    if (start < 0) throw new Error('model output contains no JSON object')
-    let depth = 0
-    let inString = false
-    let escaped = false
-    for (let index = start; index < trimmed.length; index += 1) {
-      const character = trimmed[index]
-      if (inString) {
-        if (escaped) escaped = false
-        else if (character === '\\') escaped = true
-        else if (character === '"') inString = false
-      } else if (character === '"') inString = true
-      else if (character === '{') depth += 1
-      else if (character === '}' && --depth === 0) return JSON.parse(trimmed.slice(start, index + 1))
+  } catch {}
+  const start = trimmed.indexOf('{')
+  if (start < 0) throw new Error('json_validate_failed: model output contains no JSON object')
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = start; index < trimmed.length; index += 1) {
+    const character = trimmed[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (character === '\\') escaped = true
+      else if (character === '"') inString = false
+    } else if (character === '"') inString = true
+    else if (character === '{') depth += 1
+    else if (character === '}' && --depth === 0) {
+      try {
+        return JSON.parse(trimmed.slice(start, index + 1))
+      } catch (error) {
+        throw new Error(`json_validate_failed: ${error.message}`)
+      }
     }
-    throw new Error('model output contains incomplete JSON')
   }
+  throw new Error('json_validate_failed: model output contains incomplete JSON')
 }
 
-async function requestGroqJson(apiKey, model, messages, label, includeJsonMode) {
+async function requestGroqJson(apiKey, model, messages, label, includeJsonMode, shortOutput = false) {
   const body = {
     model,
-    messages,
+    messages: shortOutput
+      ? messages.map((message, index) => index === messages.length - 1
+        ? { ...message, content: `${message.content}\n\nRetry instruction: return compact, valid JSON and stay within the requested length. If writing an article, keep html_body to 600-700 words and facts to no more than 8 items.` }
+        : message)
+      : messages,
+    max_tokens: 10000,
     temperature: 0.2,
-    reasoning_effort: 'medium',
+    reasoning_effort: 'low',
   }
   if (includeJsonMode) body.response_format = { type: 'json_object' }
   const response = await fetchWithRetry(`${groqApiUrl}/chat/completions`, {
@@ -294,32 +323,51 @@ async function requestGroqJson(apiKey, model, messages, label, includeJsonMode) 
     body: JSON.stringify(body),
   }, `${label} (${model})`)
   const payload = await response.json()
+  const finishReason = payload.choices?.[0]?.finish_reason
+  if (finishReason === 'length') {
+    throw new Error(`${label} (${model}) finish_reason=length`)
+  }
   const content = payload.choices?.[0]?.message?.content
   if (typeof content !== 'string' || !content.trim()) {
     throw new Error(`${label} (${model}) returned empty content`)
   }
-  return extractJson(content)
+  try {
+    return extractJson(content)
+  } catch (error) {
+    throw new Error(`json_validate_failed: ${error.message}`)
+  }
 }
 
 async function groqJson(apiKey, messages, label) {
   const errors = []
   for (const model of [PRIMARY_MODEL, FALLBACK_MODEL]) {
-    try {
-      let value
+    let includeJsonMode = true
+    for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        value = await requestGroqJson(apiKey, model, messages, label, true)
+        let value
+        try {
+          value = await requestGroqJson(apiKey, model, messages, label, includeJsonMode, attempt === 1)
+        } catch (error) {
+          const unsupportedJsonMode = includeJsonMode
+            && /response_format|json_object|json mode/i.test(error.message)
+            && /unsupported|not support|invalid|unrecognized|unknown|not allowed/i.test(error.message)
+          if (!unsupportedJsonMode) throw error
+          includeJsonMode = false
+          log(`${label}: ${model} does not support JSON mode; safely extracting JSON from its response`)
+          value = await requestGroqJson(apiKey, model, messages, label, false, attempt === 1)
+        }
+        return { value, model }
       } catch (error) {
-        const unsupportedJsonMode = /response_format|json_object|json mode/i.test(error.message)
-          && /unsupported|not support|invalid|unrecognized|unknown|not allowed/i.test(error.message)
-        if (!unsupportedJsonMode) throw error
-        log(`${label}: ${model} does not support JSON mode; safely extracting JSON from its response`)
-        value = await requestGroqJson(apiKey, model, messages, label, false)
+        errors.push(`${model} attempt ${attempt + 1}: ${error.message}`)
+        const retryableOutput = /finish_reason=length|max[_ ]completion[_ ]tokens|json_validate_failed/i.test(error.message)
+        if (attempt === 0 && retryableOutput) {
+          log(`${label}: ${model} output was truncated or invalid; retrying once with a shorter response`)
+          continue
+        }
+        break
       }
-      return { value, model }
-    } catch (error) {
-      errors.push(`${model}: ${error.message}`)
-      log(`${label}: ${model} failed (${error.message}); trying fallback model`)
     }
+    log(`${label}: ${model} failed; trying fallback model`)
   }
   throw new Error(`${label} failed on both models. ${errors.join(' | ')}`)
 }
@@ -338,10 +386,11 @@ function validArticle(article) {
     && article.tags.every(tag => typeof tag === 'string' && tag.trim().length > 0)
     && Array.isArray(article.facts)
     && article.facts.length > 0
+    && article.facts.length <= 8
     && article.facts.every(fact => fact && typeof fact.claim === 'string'
       && typeof fact.exact_quote_from_source === 'string'
       && fact.claim.trim() && fact.exact_quote_from_source.trim())
-    && !/[ऀ-ॿ]/u.test(`${article.title} ${article.meta_description} ${article.html_body}`)
+    && !/[\u0900-\u0965\u0970-\u097f]/u.test(`${article.title} ${article.meta_description} ${article.html_body}`)
 }
 
 function normalizeEvidenceText(value) {
@@ -350,7 +399,8 @@ function normalizeEvidenceText(value) {
     june: 'jun', july: 'jul', august: 'aug', september: 'sep', october: 'oct',
     november: 'nov', december: 'dec',
   }
-  return value.toLocaleLowerCase('en')
+  return value.replace(/[\u0966-\u096f]/g, digit => String(digit.charCodeAt(0) - 0x0966))
+    .toLocaleLowerCase('en')
     .replace(/(\d),(?=\d)/g, '$1')
     .replace(/₹|\b(?:inr|rs\.?)\b/gi, ' rs ')
     .replace(/%|per cent|percent/gi, ' percent ')
@@ -362,7 +412,7 @@ function normalizeEvidenceText(value) {
 }
 
 function extractNumericValues(value) {
-  const plainText = textFromHtml(value)
+  const plainText = textFromHtml(value).replace(/[\u0966-\u096f]/g, digit => String(digit.charCodeAt(0) - 0x0966))
   const pattern = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}\b|\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b|(?:₹|Rs\.?\s*|INR\s*|USD\s*|\$|€|£)\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:crore|crores|lakh|lakhs|million|billion|thousand|per cent|percent|%))?|\b\d[\d,]*(?:\.\d+)?\s*(?:%|per cent|percent|crore|crores|lakh|lakhs|million|billion|thousand|km|kilomet(?:re|er)s?|kg|tonnes?|years?|months?|days?)?/giu
   return [...plainText.matchAll(pattern)].map(match => match[0].trim()).filter(Boolean)
 }
@@ -532,7 +582,7 @@ async function main() {
   const loadedFeeds = await Promise.all(feeds.map(loadFeed))
   const seenUrls = new Set()
   const seenTitles = new Set()
-  const candidates = feeds.flatMap((_, feedIndex) => loadedFeeds[feedIndex].slice(0, 10))
+  const allCandidates = loadedFeeds.flat()
     .filter(isRecent)
     .filter(item => {
       const titleKey = normalizeTitle(item.title)
@@ -541,26 +591,51 @@ async function main() {
       seenTitles.add(titleKey)
       return !history.urls.has(item.url) && !history.titles.has(titleKey)
     })
-    .slice(0, 60)
+  const pressCandidates = allCandidates.filter(item => item.sourceType === 'press-release').slice(0, 10)
+  const featureCandidates = allCandidates.filter(item => item.sourceType === 'feature').slice(0, 10)
 
-  if (!candidates.length) {
+  if (!pressCandidates.length && !featureCandidates.length) {
     log('No new recent headlines found; nothing to publish.')
     await writeIfChanged(feedFile, rssFeed(posts))
     return
   }
 
-  log(`${candidates.length} new headlines available for selection`)
+  const sourcesByUrl = new Map()
+  const fetchEligibleOfficialStories = async items => Promise.all(items.map(async item => {
+    const source = await fetchPibArticle(item)
+    if (!source.englishAvailable || source.text.length < minSourceLength || !source.releaseDate) {
+      log(`Source ineligible for "${item.title}": English PIB text ${source.englishAvailable ? `${source.text.length} chars` : 'unavailable'}${source.releaseDate ? '' : ', release date missing'}`)
+      return null
+    }
+    sourcesByUrl.set(item.url, source)
+    return item
+  })).then(items => items.filter(Boolean))
+
+  const eligiblePressStories = await fetchEligibleOfficialStories(pressCandidates)
+  let candidates = eligiblePressStories
+  if (eligiblePressStories.length < 2) {
+    log(`Only ${eligiblePressStories.length} eligible PIB Press Release stories; adding PIB Features to fill up to two posts`)
+    const eligibleFeatures = await fetchEligibleOfficialStories(featureCandidates)
+    candidates = [...eligiblePressStories, ...eligibleFeatures]
+  }
+  if (!candidates.length) {
+    log('No eligible English PIB source text of at least 800 characters; nothing to publish.')
+    await writeIfChanged(feedFile, rssFeed(posts))
+    return
+  }
+
+  log(`${eligiblePressStories.length} eligible PIB Press Release and ${candidates.filter(item => item.sourceType === 'feature').length} eligible PIB Feature stories available`)
   let selectionResult
   try {
     selectionResult = await groqJson(apiKey, [
     {
       role: 'system',
-      content: 'Select and rank up to 12 distinct recent news stories useful for UPSC CSE from policy, governance, international relations, economy, environment, science and technology, or social issues. Use only the supplied headlines and summaries. Return strict JSON with an articles array of objects containing only id, ordered by UPSC relevance. Prefer official PIB items when relevant. Do not select routine or unrelated items.',
+      content: 'Rank up to 10 distinct stories for UPSC CSE, returning as many strong alternatives as available. Prioritize PIB Press Releases covering Cabinet decisions, new schemes and missions, international agreements and MoUs, reports and indices, bills and Acts, environment, science and technology, economic data, defence, and governance reforms. Use PIB Features only to fill a place when fewer than two eligible PIB Press Releases are available. Prefer high policy impact, clear syllabus relevance, and useful Prelims/Mains dimensions; avoid routine ceremonial news. Do not choose two stories from the same ministry or the same topic. Return strict JSON with an articles array of objects containing id, a concise selection_reason in English, ministry, and topic, in rank order. Use only the supplied headline and summary to assign these labels.',
     },
     {
       role: 'user',
-      content: JSON.stringify(candidates.map(({ id, title, summary, sourceName, official }) => ({
-        id, title, summary: summary.slice(0, 500), sourceName, official,
+      content: JSON.stringify(candidates.map(({ id, title, summary, sourceName, sourceType }) => ({
+        id, title, summary: summary.slice(0, 500), sourceName, sourceType,
       }))),
     },
     ], 'Groq story selection')
@@ -570,26 +645,47 @@ async function main() {
     await writeIfChanged(feedFile, rssFeed(posts))
     return
   }
-  const chosenIds = [...new Set(
-    (Array.isArray(selectionResult.value.articles) ? selectionResult.value.articles : [])
-      .map(article => article?.id)
-      .filter(id => candidates.some(candidate => candidate.id === id)),
-  )].slice(0, 12)
+  const rankedStories = []
+  const usedMinistries = new Set()
+  const usedTopics = new Set()
+  const selectedIds = new Set()
+  for (const selection of Array.isArray(selectionResult.value.articles) ? selectionResult.value.articles : []) {
+    const candidate = candidates.find(item => item.id === selection?.id)
+    const ministry = typeof selection?.ministry === 'string' ? normalizeTitle(selection.ministry) : ''
+    const topic = typeof selection?.topic === 'string' ? normalizeTitle(selection.topic) : ''
+    if (!candidate || typeof selection.selection_reason !== 'string'
+      || !selection.selection_reason.trim() || !ministry || !topic || selectedIds.has(candidate.id)) continue
+    if (usedMinistries.has(ministry) || usedTopics.has(topic)) {
+      log(`Rejected duplicate ministry/topic selection: "${candidate.title}"`)
+      continue
+    }
+    selectedIds.add(candidate.id)
+    usedMinistries.add(ministry)
+    usedTopics.add(topic)
+    rankedStories.push({ ...candidate, selectionReason: selection.selection_reason })
+  }
 
-  if (!chosenIds.length) {
+  if (!rankedStories.length) {
     log('Story selection returned no valid stories; nothing to publish.')
     await writeIfChanged(feedFile, rssFeed(posts))
     return
   }
-  const selected = chosenIds.map(id => candidates.find(candidate => candidate.id === id))
+  const selected = rankedStories.sort((first, second) => {
+    if (first.sourceType === second.sourceType) return 0
+    return first.sourceType === 'press-release' ? -1 : 1
+  })
   const css = `${await readFile(join(projectRoot, 'src/index.css'), 'utf8')}\n${await readFile(join(projectRoot, 'src/App.css'), 'utf8')}`
   const date = todayInIndia()
   let published = 0
 
   for (const item of selected) {
     if (published >= 2) break
-    log(`Selected story: "${item.title}" (${item.sourceName})`)
-    const source = await fetchPibArticle(item)
+    log(`Selected story: "${item.title}" (${item.sourceName}); reason: ${item.selectionReason}`)
+    const source = sourcesByUrl.get(item.url)
+    if (!source?.englishAvailable) {
+      log(`Skipping "${item.title}": English PIB source unavailable`)
+      continue
+    }
     const sourceText = source.text
     if (sourceText.length < minSourceLength) {
       log(`Skipping "${item.title}": full official source text is only ${sourceText.length} characters (minimum ${minSourceLength})`)
@@ -600,12 +696,12 @@ async function main() {
       continue
     }
 
-    const prompt = `Write an original UPSC current-affairs article in clear, formal-but-simple English only. Title, headings, body, and meta description must all be English. Use only facts from the complete source text below. Do not copy sentences. Explain UPSC relevance qualitatively. Include these English sections: What happened, Why it matters for UPSC, Prelims points, Mains angle, and Related syllabus topic. If the source does not support a section, give fewer points rather than inventing. Do not add numbered lists unless each number is present in the source.
+    const prompt = `Write an original UPSC current-affairs article in clear, formal-but-simple English only. Title, headings, body, and meta description must all be English. Use only facts from the complete source text below. Do not copy sentences. Explain UPSC relevance qualitatively. Include these English sections: What happened, Why it matters for UPSC, Prelims points, Mains angle, and Related syllabus topic. If the source does not support a section, give fewer points rather than inventing. Do not add numbered lists unless each number is present in the source. Keep html_body between 600 and 900 words. Return no more than 8 facts.
 
 Return strict JSON with exactly these fields: title (string), slug (lowercase ASCII letters/digits/hyphens only), meta_description (string), html_body (HTML string), tags (array of strings), facts (array of objects with claim and exact_quote_from_source strings). Each quote must be copied exactly from the source text. Do not include an invented source line in the body; it will be added from verified metadata.
 
 Source name: ${item.sourceName}
-Original link: ${item.url}
+Original link: ${source.sourceUrl}
 Release date: ${source.releaseDate}
 Source text (the only factual source): ${sourceText}`
 
@@ -653,7 +749,7 @@ Source text (the only factual source): ${sourceText}`
     const sourceSlug = article.slug.toLowerCase()
     const fileName = `${date}-${sourceSlug}.html`
     const href = `/blog/${fileName}`
-    if (posts.some(post => post.href === href) || history.urls.has(item.url) || history.titles.has(normalizeTitle(item.title))) {
+    if (posts.some(post => post.href === href) || history.urls.has(item.url) || history.urls.has(source.sourceUrl) || history.titles.has(normalizeTitle(item.title))) {
       log(`Skipping duplicate "${item.title}"`)
       continue
     }
@@ -674,7 +770,7 @@ Source text (the only factual source): ${sourceText}`
       href,
       sourceName: item.sourceName,
       releaseDate: source.releaseDate,
-      sourceUrl: item.url,
+      sourceUrl: source.sourceUrl,
       sourceTitle: item.title,
       tags: article.tags.map(tag => tag.trim()).slice(0, 10),
       body: safeArticleHtml(article.html_body),
@@ -707,7 +803,7 @@ Source text (the only factual source): ${sourceText}`
   log(`Run complete: published ${published} post(s); ${posts.length} in history.`)
 }
 
-export { verifyGeneratedArticle }
+export { containsDevanagari, englishSourceText, groqJson, verifyGeneratedArticle }
 
 if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
   main().catch(error => {
