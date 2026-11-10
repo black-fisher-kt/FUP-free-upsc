@@ -28,7 +28,6 @@ jobs:
       - name: Generate daily posts
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          GROQ_MODEL: ${{ vars.GROQ_MODEL }}
         run: node scripts/daily-blog.js
       - name: Build site and refresh sitemap
         run: npm run build

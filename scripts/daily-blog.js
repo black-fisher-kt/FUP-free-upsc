@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')
 const publicRoot = join(projectRoot, 'public')
@@ -9,9 +9,11 @@ const postsFile = join(publicRoot, 'posts.json')
 const feedFile = join(publicRoot, 'feed.xml')
 const siteUrl = 'https://freeupsc.online'
 const groqApiUrl = 'https://api.groq.com/openai/v1'
-const preferredModels = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+const PRIMARY_MODEL = 'openai/gpt-oss-120b'
+const FALLBACK_MODEL = 'openai/gpt-oss-20b'
 const maxAttempts = 3
 const minBodyLength = 700
+const minSourceLength = 800
 
 const feeds = [
   { name: 'PIB Press Releases', url: 'https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3', official: true },
@@ -131,8 +133,9 @@ async function fetchWithRetry(url, options = {}, label = url) {
       })
       if (response.ok) return response
       const retryable = response.status === 429 || response.status >= 500
+      const errorBody = (await response.text()).slice(0, 500)
       if (!retryable || attempt === maxAttempts) {
-        throw new Error(`${label} returned HTTP ${response.status}`)
+        throw new Error(`${label} returned HTTP ${response.status}${errorBody ? `: ${errorBody}` : ''}`)
       }
       const retryAfter = Number(response.headers.get('retry-after'))
       const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
@@ -223,7 +226,7 @@ function pibArticleText(html) {
 }
 
 async function fetchPibArticle(item) {
-  if (!item.official) return item.summary
+  if (!item.official) return { text: item.summary, releaseDate: '' }
   try {
     const response = await fetchWithRetry(item.url, {
       headers: { accept: 'text/html,application/xhtml+xml' },
@@ -239,60 +242,90 @@ async function fetchPibArticle(item) {
           headers: { accept: 'text/html,application/xhtml+xml' },
         }, `PIB English article ${englishUrl}`)
         const englishText = pibArticleText(await englishResponse.text())
-        if (englishText.length > text.length) text = englishText
+        if (englishText.length >= minSourceLength) text = englishText
       }
     }
-    return text.slice(0, 12000)
+    const releaseDate = text.match(/\bPosted On:\s*(.+?)(?=\s+by PIB\b|$)/i)?.[1]?.trim() ?? ''
+    return { text, releaseDate }
   } catch (error) {
     log(`PIB article text unavailable for "${item.title}": ${error.message}`)
-    return item.summary
+    return { text: item.summary, releaseDate: '' }
   }
 }
 
-async function getAvailableModel(apiKey) {
-  const response = await fetchWithRetry(`${groqApiUrl}/models`, {
-    headers: { authorization: `Bearer ${apiKey}` },
-  }, 'Groq models endpoint')
-  const result = await response.json()
-  const modelIds = Array.isArray(result.data)
-    ? result.data.map(model => model.id).filter(id => typeof id === 'string')
-    : []
-  const requestedModel = process.env.GROQ_MODEL?.trim()
-  if (requestedModel) {
-    if (!modelIds.includes(requestedModel)) {
-      throw new Error(`GROQ_MODEL "${requestedModel}" is not available in the authenticated Groq models list`)
+function extractJson(content) {
+  const trimmed = content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    const start = trimmed.indexOf('{')
+    if (start < 0) throw new Error('model output contains no JSON object')
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let index = start; index < trimmed.length; index += 1) {
+      const character = trimmed[index]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (character === '\\') escaped = true
+        else if (character === '"') inString = false
+      } else if (character === '"') inString = true
+      else if (character === '{') depth += 1
+      else if (character === '}' && --depth === 0) return JSON.parse(trimmed.slice(start, index + 1))
     }
-    return requestedModel
+    throw new Error('model output contains incomplete JSON')
   }
-  const selectedModel = preferredModels.find(model => modelIds.includes(model))
-  if (!selectedModel) {
-    throw new Error(`No preferred free-tier model is available. Set GROQ_MODEL to one of: ${modelIds.slice(0, 20).join(', ')}`)
-  }
-  return selectedModel
 }
 
-async function groqJson(apiKey, model, messages, label) {
+async function requestGroqJson(apiKey, model, messages, label, includeJsonMode) {
+  const body = {
+    model,
+    messages,
+    temperature: 0.2,
+    reasoning_effort: 'medium',
+  }
+  if (includeJsonMode) body.response_format = { type: 'json_object' }
   const response = await fetchWithRetry(`${groqApiUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${apiKey}`,
       'content-type': 'application/json',
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      response_format: { type: 'json_object' },
-      temperature: 0.4,
-    }),
-  }, label)
+    body: JSON.stringify(body),
+  }, `${label} (${model})`)
   const payload = await response.json()
   const content = payload.choices?.[0]?.message?.content
-  if (typeof content !== 'string') throw new Error(`${label} returned no message content`)
-  return JSON.parse(content)
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error(`${label} (${model}) returned empty content`)
+  }
+  return extractJson(content)
+}
+
+async function groqJson(apiKey, messages, label) {
+  const errors = []
+  for (const model of [PRIMARY_MODEL, FALLBACK_MODEL]) {
+    try {
+      let value
+      try {
+        value = await requestGroqJson(apiKey, model, messages, label, true)
+      } catch (error) {
+        const unsupportedJsonMode = /response_format|json_object|json mode/i.test(error.message)
+          && /unsupported|not support|invalid|unrecognized|unknown|not allowed/i.test(error.message)
+        if (!unsupportedJsonMode) throw error
+        log(`${label}: ${model} does not support JSON mode; safely extracting JSON from its response`)
+        value = await requestGroqJson(apiKey, model, messages, label, false)
+      }
+      return { value, model }
+    } catch (error) {
+      errors.push(`${model}: ${error.message}`)
+      log(`${label}: ${model} failed (${error.message}); trying fallback model`)
+    }
+  }
+  throw new Error(`${label} failed on both models. ${errors.join(' | ')}`)
 }
 
 function validArticle(article) {
-  const expectedFields = ['html_body', 'meta_description', 'slug', 'tags', 'title']
+  const expectedFields = ['facts', 'html_body', 'meta_description', 'slug', 'tags', 'title']
   return article && typeof article === 'object'
     && Object.keys(article).sort().join(',') === expectedFields.join(',')
     && typeof article.title === 'string' && article.title.trim().length >= 12
@@ -303,6 +336,55 @@ function validArticle(article) {
     && Array.isArray(article.tags)
     && article.tags.length > 0
     && article.tags.every(tag => typeof tag === 'string' && tag.trim().length > 0)
+    && Array.isArray(article.facts)
+    && article.facts.length > 0
+    && article.facts.every(fact => fact && typeof fact.claim === 'string'
+      && typeof fact.exact_quote_from_source === 'string'
+      && fact.claim.trim() && fact.exact_quote_from_source.trim())
+    && !/[ऀ-ॿ]/u.test(`${article.title} ${article.meta_description} ${article.html_body}`)
+}
+
+function normalizeEvidenceText(value) {
+  const months = {
+    january: 'jan', february: 'feb', march: 'mar', april: 'apr', may: 'may',
+    june: 'jun', july: 'jul', august: 'aug', september: 'sep', october: 'oct',
+    november: 'nov', december: 'dec',
+  }
+  return value.toLocaleLowerCase('en')
+    .replace(/(\d),(?=\d)/g, '$1')
+    .replace(/₹|\b(?:inr|rs\.?)\b/gi, ' rs ')
+    .replace(/%|per cent|percent/gi, ' percent ')
+    .replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/gi, month => months[month.toLowerCase()])
+    .replace(/[^\p{L}\p{N}.]+/gu, ' ')
+    .replace(/(?<!\d)\.|\.(?!\d)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function extractNumericValues(value) {
+  const plainText = textFromHtml(value)
+  const pattern = /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b\d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{4}\b|\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b|(?:₹|Rs\.?\s*|INR\s*|USD\s*|\$|€|£)\s*\d[\d,]*(?:\.\d+)?(?:\s*(?:crore|crores|lakh|lakhs|million|billion|thousand|per cent|percent|%))?|\b\d[\d,]*(?:\.\d+)?\s*(?:%|per cent|percent|crore|crores|lakh|lakhs|million|billion|thousand|km|kilomet(?:re|er)s?|kg|tonnes?|years?|months?|days?)?/giu
+  return [...plainText.matchAll(pattern)].map(match => match[0].trim()).filter(Boolean)
+}
+
+function verifyGeneratedArticle(article, sourceText) {
+  const source = normalizeEvidenceText(sourceText)
+  const missingQuotes = article.facts
+    .map(fact => fact.exact_quote_from_source.trim())
+    .filter(quote => !textFromHtml(sourceText).toLocaleLowerCase('en').replace(/\s+/g, ' ')
+      .includes(textFromHtml(quote).toLocaleLowerCase('en').replace(/\s+/g, ' ')))
+  const outputNumbers = extractNumericValues(`${article.title}\n${article.meta_description}\n${article.html_body}`)
+  const rejectedNumbers = [...new Set(outputNumbers.filter(value => {
+    const normalized = normalizeEvidenceText(value)
+    if (!normalized) return false
+    const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return !new RegExp(`(?:^| )${escaped}(?= |$)`, 'u').test(source)
+  }))]
+  return {
+    passed: missingQuotes.length === 0 && rejectedNumbers.length === 0,
+    missingQuotes,
+    rejectedNumbers,
+  }
 }
 
 function safeArticleHtml(html) {
@@ -352,7 +434,8 @@ function pageHtml(post, css) {
         <article class="section legal-copy">
           <p class="article-meta">${escapeHtml(post.date)}<span>•</span>Daily current affairs</p>
           ${post.body}
-          <p><strong>Source:</strong> <a href="${escapeHtml(post.sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(post.sourceName)} — original report ↗</a></p>
+          <p><strong>Source:</strong> ${escapeHtml(post.sourceName)} — ${escapeHtml(post.releaseDate)} — <a href="${escapeHtml(post.sourceUrl)}" target="_blank" rel="noopener noreferrer">original release ↗</a></p>
+          <p>This summary is based on the official source above; please refer to it for exact details.</p>
           <p><a class="arrow-link" href="/blog/">← Back to the journal</a></p>
         </article>
       </main>
@@ -466,66 +549,106 @@ async function main() {
     return
   }
 
-  const model = await getAvailableModel(apiKey)
-  log(`Using Groq model ${model}; ${candidates.length} new headlines available`)
-
-  const selection = await groqJson(apiKey, model, [
+  log(`${candidates.length} new headlines available for selection`)
+  let selectionResult
+  try {
+    selectionResult = await groqJson(apiKey, [
     {
       role: 'system',
-      content: 'You select exactly two distinct recent news stories useful for UPSC CSE from policy, governance, international relations, economy, environment, science and technology, or social issues. Use only the supplied headline and summary. Return strict JSON with an articles array of exactly two objects, each containing only the supplied id. Do not select routine or unrelated items.',
+      content: 'Select and rank up to 12 distinct recent news stories useful for UPSC CSE from policy, governance, international relations, economy, environment, science and technology, or social issues. Use only the supplied headlines and summaries. Return strict JSON with an articles array of objects containing only id, ordered by UPSC relevance. Prefer official PIB items when relevant. Do not select routine or unrelated items.',
     },
     {
       role: 'user',
-      content: JSON.stringify(candidates.map(({ id, title, summary, sourceName }) => ({ id, title, summary, sourceName }))),
+      content: JSON.stringify(candidates.map(({ id, title, summary, sourceName, official }) => ({
+        id, title, summary: summary.slice(0, 500), sourceName, official,
+      }))),
     },
-  ], 'Groq story selection')
+    ], 'Groq story selection')
+    log(`Story selection used ${selectionResult.model}`)
+  } catch (error) {
+    log(`Story selection failed on both models; skipping this run: ${error.message}`)
+    await writeIfChanged(feedFile, rssFeed(posts))
+    return
+  }
   const chosenIds = [...new Set(
-    (Array.isArray(selection.articles) ? selection.articles : [])
+    (Array.isArray(selectionResult.value.articles) ? selectionResult.value.articles : [])
       .map(article => article?.id)
       .filter(id => candidates.some(candidate => candidate.id === id)),
-  )].slice(0, 2)
+  )].slice(0, 12)
 
-  if (chosenIds.length !== 2) throw new Error('Groq did not select two valid story IDs')
+  if (!chosenIds.length) {
+    log('Story selection returned no valid stories; nothing to publish.')
+    await writeIfChanged(feedFile, rssFeed(posts))
+    return
+  }
   const selected = chosenIds.map(id => candidates.find(candidate => candidate.id === id))
   const css = `${await readFile(join(projectRoot, 'src/index.css'), 'utf8')}\n${await readFile(join(projectRoot, 'src/App.css'), 'utf8')}`
   const date = todayInIndia()
   let published = 0
 
   for (const item of selected) {
-    const sourceText = await fetchPibArticle(item)
-    if (sourceText.length < 80) {
-      log(`Skipping "${item.title}": source text is too short`)
+    if (published >= 2) break
+    log(`Selected story: "${item.title}" (${item.sourceName})`)
+    const source = await fetchPibArticle(item)
+    const sourceText = source.text
+    if (sourceText.length < minSourceLength) {
+      log(`Skipping "${item.title}": full official source text is only ${sourceText.length} characters (minimum ${minSourceLength})`)
+      continue
+    }
+    if (!source.releaseDate) {
+      log(`Skipping "${item.title}": official source release date was not found`)
       continue
     }
 
-    const prompt = `Write an original UPSC current-affairs blog post using ONLY the source text below for factual claims. Do not add facts, figures, names, dates, context, or claims not present in the text. Explain UPSC relevance as analysis, not as unsupported factual claims. Paraphrase; never copy sentences. Write in Hinglish or clear English. Use this structure with headings: what happened; why it matters for UPSC; Prelims points; Mains angle; related UPSC syllabus topic. Finish the body with the source name and original link. Use meaningful HTML paragraphs and headings.
+    const prompt = `Write an original UPSC current-affairs article in clear, formal-but-simple English only. Title, headings, body, and meta description must all be English. Use only facts from the complete source text below. Do not copy sentences. Explain UPSC relevance qualitatively. Include these English sections: What happened, Why it matters for UPSC, Prelims points, Mains angle, and Related syllabus topic. If the source does not support a section, give fewer points rather than inventing. Do not add numbered lists unless each number is present in the source.
 
-Return strict JSON with exactly these fields: title (string), slug (lowercase ASCII letters/digits/hyphens only), meta_description (string), html_body (HTML string), tags (array of strings).
+Return strict JSON with exactly these fields: title (string), slug (lowercase ASCII letters/digits/hyphens only), meta_description (string), html_body (HTML string), tags (array of strings), facts (array of objects with claim and exact_quote_from_source strings). Each quote must be copied exactly from the source text. Do not include an invented source line in the body; it will be added from verified metadata.
 
 Source name: ${item.sourceName}
 Original link: ${item.url}
-Headline: ${item.title}
-Source text: ${sourceText}`
+Release date: ${source.releaseDate}
+Source text (the only factual source): ${sourceText}`
 
     let article
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    let usedModel = ''
+    let verification = { rejectedNumbers: [], missingQuotes: [] }
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
-        const result = await groqJson(apiKey, model, [
-          { role: 'system', content: 'You are an accurate UPSC current-affairs educator. Follow the source-only factuality constraint and output JSON only.' },
-          { role: 'user', content: prompt },
-        ], `Groq article generation (${item.sourceName})`)
-        if (!validArticle(result)) throw new Error('Generated JSON is invalid or the article is too short')
-        article = result
-        break
-      } catch (error) {
-        if (attempt === 3) {
-          log(`Skipping "${item.title}" after 3 attempts: ${error.message}`)
+        const result = await groqJson(apiKey, [
+          {
+            role: 'system',
+            content: 'You are an accurate UPSC current-affairs educator. Follow every rule exactly: (1) Use ONLY facts present in the provided source text. Do not add any number, date, percentage, amount, name, place, scheme detail, or quote from your own memory. (2) Copy every number, date, percentage, and currency amount exactly as written in the source, with the same units (crore, lakh, per cent, etc). Never round, convert, recalculate, or reword numbers. (3) Background and explanation must be qualitative. If a number or date is not in the source, do not mention it. (4) If the source does not give enough information for a section (for example Prelims points), write fewer points instead of inventing. (5) Write clear, formal-but-simple English only. Return strict JSON with title, slug, meta_description, html_body, tags, and facts array of {claim, exact_quote_from_source}. Every exact_quote_from_source must be a verbatim substring of the source.',
+          },
+          { role: 'user', content: attempt === 1 ? prompt : `${prompt}\n\nVerification feedback: these values are not in the source, remove them: ${verification.rejectedNumbers.join(', ') || 'none'}. Also replace any source quotes that are not exact source substrings.` },
+        ], `Article generation for "${item.title}"`)
+        usedModel = result.model
+        log(`Article model for "${item.title}": ${usedModel}`)
+        if (!validArticle(result.value)) throw new Error('JSON structure/fields are invalid, body is too short, or generated text is not English')
+        verification = verifyGeneratedArticle(result.value, sourceText)
+        if (verification.passed) {
+          log(`Verification passed for "${item.title}" (${usedModel}); no rejected numbers`)
+          article = result.value
           break
         }
-        log(`Retrying "${item.title}" after validation/API error (${attempt + 1}/3): ${error.message}`)
+        log(`Verification failed for "${item.title}" (${usedModel}); rejected numbers: ${verification.rejectedNumbers.join(', ') || 'none'}; unmatched quotes: ${verification.missingQuotes.length}`)
+        if (attempt === 2) break
+        continue
+      } catch (error) {
+        log(`Generation attempt ${attempt} failed for "${item.title}"${usedModel ? ` (${usedModel})` : ''}: ${error.message}`)
+        if (/failed on both models/.test(error.message)) {
+          log(`Skipping "${item.title}": both configured models failed`)
+          break
+        }
+        if (attempt === 2) {
+          log(`Skipping "${item.title}" after both models/retry failed`)
+          break
+        }
       }
     }
-    if (!article) continue
+    if (!article) {
+      log(`Verification failed; skipping "${item.title}"`)
+      continue
+    }
 
     const sourceSlug = article.slug.toLowerCase()
     const fileName = `${date}-${sourceSlug}.html`
@@ -550,6 +673,7 @@ Source text: ${sourceText}`
       readTime: '5 min read',
       href,
       sourceName: item.sourceName,
+      releaseDate: source.releaseDate,
       sourceUrl: item.url,
       sourceTitle: item.title,
       tags: article.tags.map(tag => tag.trim()).slice(0, 10),
@@ -567,6 +691,7 @@ Source text: ${sourceText}`
       slug: publishedPost.slug,
       href: publishedPost.href,
       sourceName: publishedPost.sourceName,
+      releaseDate: publishedPost.releaseDate,
       sourceUrl: publishedPost.sourceUrl,
       sourceTitle: publishedPost.sourceTitle,
       tags: publishedPost.tags,
@@ -574,7 +699,7 @@ Source text: ${sourceText}`
     history.urls.add(item.url)
     history.titles.add(normalizeTitle(item.title))
     published += 1
-    log(`Published "${publishedPost.title}"`)
+    log(`Published "${publishedPost.title}" using ${usedModel}; verification passed`)
   }
 
   await writeIfChanged(postsFile, `${JSON.stringify(posts, null, 2)}\n`)
@@ -582,7 +707,11 @@ Source text: ${sourceText}`
   log(`Run complete: published ${published} post(s); ${posts.length} in history.`)
 }
 
-main().catch(error => {
-  console.error(`[daily-blog] ERROR: ${error.message}`)
-  process.exitCode = 1
-})
+export { verifyGeneratedArticle }
+
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  main().catch(error => {
+    console.error(`[daily-blog] ERROR: ${error.message}`)
+    process.exitCode = 1
+  })
+}

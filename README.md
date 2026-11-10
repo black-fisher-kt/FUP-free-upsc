@@ -33,8 +33,8 @@ See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rule
 
 ## Daily UPSC blog
 
-The `daily-blog` GitHub Actions workflow runs at 07:00 India time and can also be started with **Actions → Publish daily UPSC blog → Run workflow**. Add a repository Actions secret named `GROQ_API_KEY`; the workflow checks Groq's authenticated models endpoint and defaults to `llama-3.3-70b-versatile`, falling back to `llama-3.1-8b-instant` if needed. An optional repository variable named `GROQ_MODEL` can select another model that is present in that endpoint's response.
+The `daily-blog` GitHub Actions workflow runs at 07:00 India time and can also be started with **Actions → Publish daily UPSC blog → Run workflow**. Add a repository Actions secret named `GROQ_API_KEY`. The script uses `openai/gpt-oss-120b` and falls back to `openai/gpt-oss-20b` if needed. Generated articles are English-only and are published only after full official source text and factual checks pass.
 
 The workflow reads PIB Press Releases and Features, The Indian Express India, and The Hindu national RSS feeds. Unavailable feeds are skipped. It writes generated pages under `public/blog/`, updates `public/posts.json` and `public/feed.xml`, runs the regular site build (which runs `scripts/build-sitemap.js`), and commits only when generated content changed.
 
-To test locally with Node.js 20, set `GROQ_API_KEY` in your shell and run `node scripts/daily-blog.js`, followed by `npm run build`. Never put the key in source files or commit it.
+To test verification locally without a key, run `node scripts/test-daily-blog-verification.js`. To run the live generator with Node.js 20, set `GROQ_API_KEY` in your shell and run `node scripts/daily-blog.js`, followed by `npm run build`. Never put the key in source files or commit it.
